@@ -1,0 +1,23 @@
+
+
+logger:
+  level: debug
+  dir  : var/log
+
+
+
+clickhouse_servers:
+  server1:
+    server       : localhost:9000
+    user         : user
+    passwd       : passwd
+    database     : database
+    read_timeout : 60s
+    write_timeout: 10s
+    alt_hosts    : []
+    
+
+      
+
+
+
