@@ -1,20 +1,39 @@
 
+server:
+  addr      : 0.0.0.0:9302
+  timeout   : 30                        # default 30, unit second
+
+reader :
+  clickhouse : server1                  # the server to read, you need to choose one from clickhouse_servers in this config file.
+  max_samples: 20000                    #
+  percentile : 0.75                     #
+
+writer :
+  clickhouse : server1                  # the server to read, you need to choose one from clickhouse_servers in this config file
+  max_samples: 100000
+  batch      : 32768                    # Maximum Clickhouse write batch size (n metrics)
+  buffer     : 32768                    # Maximum internal channel buffer size (n requests)
 
 logger:
-  level: debug
-  dir  : var/log
-
-
+  dir          : var/log                 # default var/log
+  max_size     : 100                     # default 100, unit MB
+  max_backups  : 7                       # default 7
+  max_age      : 7                       # default 7
+  compress     : false                   # default false
+  console_level: info                    # default info      [debug, info, warn, error, fatal]
+  file_lever   : info                    # default info      [debug, info, warn, error, fatal]
 
 clickhouse_servers:
   server1:
-    server       : localhost:9000
-    user         : user
-    passwd       : passwd
-    database     : database
-    read_timeout : 60s
-    write_timeout: 10s
-    alt_hosts    : []
+    dsn          : ""                     # the dsn url to connecting, if this set, all other settings of this server will be ignored
+    host         : localhost:9000         # main host to connect
+    user         : user                   # which user used for connection
+    passwd       : passwd                 # the password for the user to connecting
+    database     : database               # which database to read and write
+    table        : table                  # which table to read and write
+    read_timeout : 60                     # unit second
+    write_timeout: 10                     # unit second
+    alt_hosts    : []                     #
     
 
       
