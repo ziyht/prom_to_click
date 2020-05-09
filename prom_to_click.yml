@@ -34,6 +34,7 @@ clickhouse_servers:
     read_timeout : 60                     # unit second
     write_timeout: 10                     # unit second
     alt_hosts    : []                     #
+    strict       : false                  # strict mode, if is on, the process will exit on first err connect
     
 
       

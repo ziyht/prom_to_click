@@ -36,6 +36,9 @@ type ReaderCfg struct {
 
 type WriterCfg struct {
 	Clickhouse   string   `yaml:"clickhouse"`
+	batch        int      `yaml:"batch"`
+	buffer       int      `yaml:"buffer"`
+
 }
 
 type LoggerCfg struct{

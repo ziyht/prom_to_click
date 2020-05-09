@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	_ "github.com/ClickHouse/clickhouse-go"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/common/model"
 	"github.com/prometheus/prometheus/storage/remote"
 )
@@ -18,8 +19,8 @@ var readerContent = []interface{}{"component", "reader"}
 type clickReader struct {
 	click   *click
 	cfg     *ReaderCfg
-	queries uint64
-	rows    uint64
+	queries prometheus.Counter
+	rows    prometheus.Counter
 }
 
 var reader *clickReader
