@@ -1,4 +1,4 @@
-package prom_to_click
+package modules
 
 import (
 	"bytes"
@@ -13,7 +13,9 @@ import (
 	"github.com/prometheus/prometheus/storage/remote"
 )
 
-type clickReader2 struct {
+var readerContent = []interface{}{"component", "reader"}
+
+type clickReader struct {
 	click   *click
 	cfg     *ReaderCfg
 	queries prometheus.Counter
@@ -21,14 +23,15 @@ type clickReader2 struct {
 	tag     string
 }
 
-func (r *clickReader2) init() {
-	r.tag = "reader2"
+func (r *clickReader) init() {
+
+	r.tag = "reader"
 
 	r.cfg   = &Cfg.Reader
 	r.click = Engine.clicks.GetServer(r.cfg.Clickhouse)
 
 	if r.click == nil {
-		slog.Fatalf("the clickhouse '%s' set in reader can not be found", r.cfg.Clickhouse)
+		slog.Fatalf("%s: the clickhouse '%s' set in reader can not be found", r.tag, r.cfg.Clickhouse)
 	}
 
 	// check and set default vals
@@ -49,11 +52,11 @@ func (r *clickReader2) init() {
 	}
 }
 
-func (r *clickReader2) IsHealthy() bool {
+func (r *clickReader) IsHealthy() bool {
 	return r.click.IsHealthy()
 }
 
-func (r *clickReader2) HandlePromReadReq(req *remote.ReadRequest, hr *http.Request) (*remote.ReadResponse, error) {
+func (r *clickReader) HandlePromReadReq(req *remote.ReadRequest, hr *http.Request) (*remote.ReadResponse, error) {
 
 	var err error
 
@@ -66,34 +69,22 @@ func (r *clickReader2) HandlePromReadReq(req *remote.ReadRequest, hr *http.Reque
 	// need to map tags to timeseries to record samples
 	var tsres = make(map[string]*remote.TimeSeries)
 
-	var (
-		t        int64
-		name     string
-		tags     []string
-		value    float64
-		rcount   int64			// row count
-		scount   int64			// sample count
-		lastTSms int64 			// last timestamp
-		lastKey  string
-		lastTS   *remote.TimeSeries
-	)
-
-	slog.Infof("%s: new query req: %d queries", r.tag, len(req.Queries))
+	// for Debugfging/figuring out query format/etc
+	rcount := 0
+	tag    := r.tag
 	tStart := time.Now()
-
-	tag := r.tag
-
 	for _, query := range req.Queries {
 
+		// get the select sql
 		q := r.getSqlQuery(query, hr)
 		if q == nil{
 			return &resp, err
 		}
-
 		slog.Debugf("%s: query: running sql: %s", q.tag, q.sql)
 		tag = q.tag
 
 		// todo: metrics on number of errors, rows, selects, timings, etc
+		cStart := time.Now()
 		rows, err := r.click.Query(q.sql)
 		if err != nil {
 			slog.Errorf("%s: query sql failed: %s: %s", q.tag, q.sql, err)
@@ -102,56 +93,42 @@ func (r *clickReader2) HandlePromReadReq(req *remote.ReadRequest, hr *http.Reque
 
 		defer rows.Close()
 
-		var (
-			curRCount int64
-			curSCount int64
-		)
-
+		curRCount := 0
 		// build map of timeseries from sql result
 		for rows.Next() {
 			curRCount++
-
-			if err = rows.Scan(&t, &name, &tags, &value); err != nil {
+			var (
+				cnt   int
+				t     int64
+				name  string
+				tags  []string
+				value float64
+			)
+			if err = rows.Scan(&cnt, &t, &name, &tags, &value); err != nil {
 				slog.Errorf("%s: scan: %s", q.tag, err.Error())
 			}
 
 			// debug
-			//fmt.Printf(fmt.Sprintf(%d,%s,%s,%f\n", cnt, t, name, strings.Join(tags, ":"), value))
+			//fmt.Printf(fmt.Sprintf("%d,%d,%s,%s,%f\n", cnt, t, name, strings.Join(tags, ":"), value))
 
-			// new query, order by tags,t, so the same tags will be returned together
-			// so we can using the last tag and current tag to check if is new
+			// borrowed from influx remote storage adapter - array sep
 			key := strings.Join(tags, "\xff")
-			if key != lastKey{
-				// maybe a new tag, check and create new one
-				ts, ok := tsres[key]
-				if !ok {
-					ts = &remote.TimeSeries{
-						Labels: makeLabels(tags),
-					}
-					tsres[key] = ts
+			ts, ok := tsres[key]
+			if !ok {
+				ts = &remote.TimeSeries{
+					Labels: makeLabels(tags),
 				}
-
-				lastKey  = key
-				lastTS   = ts
-				lastTSms = 0
+				tsres[key] = ts
 			}
-
-			// the same as last, append directly
-			ts := lastTS
-			if lastTSms != t{
-				curSCount++
-				ts.Samples = append(ts.Samples, &remote.Sample{
-					Value       : value,
-					TimestampMs : t,
-				})
-			}
-			lastTSms = t
+			ts.Samples = append(ts.Samples, &remote.Sample{
+				Value       : value,
+				TimestampMs : t,
+			})
 		}
 
-		slog.Debugf("%s: returned %d rows, wrapped %d samples", q.tag, curRCount, curSCount)
-
 		rcount += curRCount
-		scount += curSCount
+
+		slog.Debugf("%s: returned %d rows, cost: %s", q.tag, curRCount, time.Now().Sub(cStart).String())
 	}
 
 	// now add results to response
@@ -159,12 +136,12 @@ func (r *clickReader2) HandlePromReadReq(req *remote.ReadRequest, hr *http.Reque
 		resp.Results[0].Timeseries = append(resp.Results[0].Timeseries, ts)
 	}
 
-	slog.Infof("%s: query: returning %d rows for %d queries, wrapped: %d samples, cost: %s", tag, rcount, len(req.Queries), scount, time.Now().Sub(tStart).String())
+	slog.Infof("%s: query: returning %d rows for %d queries, cost: %s", tag, rcount, len(req.Queries), time.Now().Sub(tStart).String())
 
 	return &resp, nil
 }
 
-func (r *clickReader2) getSqlQuery(query *remote.Query, hr *http.Request) *sqlQuery {
+func (r *clickReader) getSqlQuery(query *remote.Query, hr *http.Request) *sqlQuery {
 
 	q := newSqlQuery(query)
 	q.tag = r.tag + ": " + q.tag
@@ -185,7 +162,7 @@ func (r *clickReader2) getSqlQuery(query *remote.Query, hr *http.Request) *sqlQu
 			tbName = args[0]
 		}
 	}
-	q.tag = r.click.tag + "/" + dbName + "." + tbName
+	q.tag = r.tag + "<-" + r.click.tag + "/" + dbName + "." + tbName
 
 	// valid time period checker
 	if query.EndTimestampMs < query.StartTimestampMs {
@@ -204,23 +181,24 @@ func (r *clickReader2) getSqlQuery(query *remote.Query, hr *http.Request) *sqlQu
 		step = int64(r.cfg.MinStep)
 	}
 
-	q.rows = append(q.rows, fmt.Sprintf("(intDiv(toUInt32(ts), %d) * %d) * 1000 as t", step, step))
-	q.rows = append(q.rows, "name", "tags", "val")
+	q.rows = append(q.rows, fmt.Sprintf("COUNT() AS CNT, (intDiv(toUInt32(ts), %d) * %d) * 1000 as t", step, step))
+	q.rows = append(q.rows, "name", "tags")
+	q.rows = append(q.rows, fmt.Sprintf("quantile(%f)(val) as value", r.cfg.Quantile))
 
 	q.from = fmt.Sprintf("%s.%s", dbName, tbName)
 
 	q.wheres = append(q.wheres, fmt.Sprintf("date >= '%s' AND ts >= '%s' AND ts <= '%s'", q.sDate, q.sStart, q.sEnd))
 	q.wheres = append(q.wheres, r.getMatchWheres(query)...)
 
-	q.groupby = ""
-	q.orderby = "tags, t"
+	q.groupby = "t, name, tags"
+	q.orderby = "tags"
 
 	q.genSql()
 
 	return q
 }
 
-func (r *clickReader2) getMatchWheres(query *remote.Query) []string {
+func (r *clickReader) getMatchWheres(query *remote.Query) []string {
 
 	var matchWheres []string
 

@@ -1,4 +1,4 @@
-package prom_to_click
+package modules
 
 import (
 	"fmt"
@@ -261,6 +261,20 @@ func Start(co *clickOutput) {
 
 	wait := w.cfg.Wait
 
+	sigSample := new(promSample)
+	// wake up wirter fo every 1 seconds
+	go func() {
+
+		for {
+			time.Sleep(time.Second)
+			select {
+			case co.inputs <- sigSample:
+			default:
+			}
+		}
+
+	}()
+
 	go func() {
 		w.wg.Add(1)
 		slog.Infof("%s: started", co.tag)
@@ -277,13 +291,19 @@ func Start(co *clickOutput) {
 			tstart := time.Now()
 			for i := 0; i < w.cfg.Batch; i++ {
 				var req *promSample
+
 				// get request and also check if channel is closed
 				req, chanOK = <-co.inputs
+
 				if !chanOK {
 					slog.Infof("%s: stopping...", co.tag)
 					break
 				}
-				reqs = append(reqs, req)
+
+				// we need to filter out sigSample
+				if req != sigSample{
+					reqs = append(reqs, req)
+				}
 
 				if wait > 0 && time.Now().Sub(tstart) > time.Second * time.Duration(wait) {
 					break

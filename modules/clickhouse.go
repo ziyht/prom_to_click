@@ -1,4 +1,4 @@
-package prom_to_click
+package modules
 
 import (
 	"database/sql"
@@ -89,6 +89,8 @@ func (c *click)ConnectingRoutine(){
 
 	lastCheck := time.Unix(0, 0)
 	//lastState := c.health
+	lastErr   := fmt.Errorf("")
+	lastPut   := time.Unix(0, 0)
 
 	newSig := false
 	chanOK := true
@@ -116,7 +118,16 @@ func (c *click)ConnectingRoutine(){
 
 				err := c.TryConnect()
 				if err != nil {
-					slog.Errorf("%s: connect failed: %s", c.tag, err)
+
+					if err.Error() != lastErr.Error(){
+						lastErr = err
+						lastPut = time.Now()
+						slog.Errorf("%s: connect failed: %s", c.tag, err)
+					} else if time.Now().Sub(lastPut) > time.Second * 10 {
+						lastPut = time.Now()
+						slog.Errorf("%s: connect failed: %s", c.tag, err)
+					}
+
 				} else {
 					slog.Infof("%s: connected ok", c.tag)
 				}

@@ -1,4 +1,4 @@
-package prom_to_click
+package modules
 
 import (
 	"gopkg.in/alecthomas/kingpin.v2"
