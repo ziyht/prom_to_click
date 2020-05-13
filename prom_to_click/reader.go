@@ -1,12 +1,11 @@
-package src
+package prom_to_click
 
 import (
 	"bytes"
-	"database/sql"
-	"errors"
 	"fmt"
-	"github.com/prometheus/common/log"
+	"net/http"
 	"strings"
+	"time"
 
 	_ "github.com/ClickHouse/clickhouse-go"
 	"github.com/prometheus/client_golang/prometheus"
@@ -21,31 +20,45 @@ type clickReader struct {
 	cfg     *ReaderCfg
 	queries prometheus.Counter
 	rows    prometheus.Counter
-}
-
-var reader *clickReader
-
-func NewPrometheusReader() *clickReader {
-
-	reader := new(clickReader)
-
-	return reader
+	tag     string
 }
 
 func (r *clickReader) init() {
+
+	r.tag = "reader"
+
 	r.cfg   = &Cfg.Reader
-	r.click = ClicksMan.GetServer(r.cfg.Clickhouse)
+	r.click = Engine.clicks.GetServer(r.cfg.Clickhouse)
 
 	if r.click == nil {
-		slog.Fatalf("the clickhouse '%s' set in reader can not be found", r.cfg.Clickhouse)
+		slog.Fatalf("%s: the clickhouse '%s' set in reader can not be found", r.tag, r.cfg.Clickhouse)
+	}
+
+	// check and set default vals
+	if r.cfg.MaxSamples == 0 {
+		r.cfg.MaxSamples = 11000
+	}
+
+	if r.cfg.Quantile == 0 {
+		r.cfg.Quantile = 0.75
+	} else if r.cfg.Quantile < 0.0 {
+		r.cfg.Quantile = 0.0
+	} else if r.cfg.Quantile > 1.0 {
+		r.cfg.Quantile = 1.0
+	}
+
+	if r.cfg.MinStep <= 0 {
+		r.cfg.MinStep = 15
 	}
 }
 
-func (r *clickReader) HandlePromReadReq(req *remote.ReadRequest) (*remote.ReadResponse, error) {
+func (r *clickReader) IsHealthy() bool {
+	return r.click.IsHealthy()
+}
+
+func (r *clickReader) HandlePromReadReq(req *remote.ReadRequest, hr *http.Request) (*remote.ReadResponse, error) {
 
 	var err error
-	var sqlStr string
-	var rows *sql.Rows
 
 	resp := remote.ReadResponse{
 		Results: []*remote.QueryResult{
@@ -58,35 +71,32 @@ func (r *clickReader) HandlePromReadReq(req *remote.ReadRequest) (*remote.ReadRe
 
 	// for Debugfging/figuring out query format/etc
 	rcount := 0
-	for _, q := range req.Queries {
-		// remove me..
-		slog.With(readerContent...).Debugf("\nquery: start: %d, end: %d", q.StartTimestampMs, q.EndTimestampMs)
+	tag    := r.tag
+	tStart := time.Now()
+	for _, query := range req.Queries {
 
 		// get the select sql
-		sqlStr, err = r.getSQL(q)
-		slog.With(readerContent...).Debugf("query: running sql: %s", sqlStr)
-		if err != nil {
-			slog.With(readerContent...).Errorf("reader: getSQL: %s", err.Error())
+		q := r.getSqlQuery(query, hr)
+		if q == nil{
 			return &resp, err
 		}
-
-		// get the select sql
-		if err != nil {
-			slog.With(readerContent...).Errorf("reader: getSQL: %s", err.Error())
-			return &resp, err
-		}
+		slog.Debugf("%s: query: running sql: %s", q.tag, q.sql)
+		tag = q.tag
 
 		// todo: metrics on number of errors, rows, selects, timings, etc
-		rows, err = r.click.Query(sqlStr)
+		cStart := time.Now()
+		rows, err := r.click.Query(q.sql)
 		if err != nil {
-			slog.With(readerContent...).Errorf("query failed: %s", sqlStr)
-			slog.With(readerContent...).Errorf("query error: %s", err)
+			slog.Errorf("%s: query sql failed: %s: %s", q.tag, q.sql, err)
 			return &resp, err
 		}
 
+		defer rows.Close()
+
+		curRCount := 0
 		// build map of timeseries from sql result
 		for rows.Next() {
-			rcount++
+			curRCount++
 			var (
 				cnt   int
 				t     int64
@@ -95,9 +105,10 @@ func (r *clickReader) HandlePromReadReq(req *remote.ReadRequest) (*remote.ReadRe
 				value float64
 			)
 			if err = rows.Scan(&cnt, &t, &name, &tags, &value); err != nil {
-				slog.With(readerContent...).Errorf("scan: %s", err.Error())
+				slog.Errorf("%s: scan: %s", q.tag, err.Error())
 			}
 
+			// debug
 			//fmt.Printf(fmt.Sprintf("%d,%d,%s,%s,%f\n", cnt, t, name, strings.Join(tags, ":"), value))
 
 			// borrowed from influx remote storage adapter - array sep
@@ -110,10 +121,14 @@ func (r *clickReader) HandlePromReadReq(req *remote.ReadRequest) (*remote.ReadRe
 				tsres[key] = ts
 			}
 			ts.Samples = append(ts.Samples, &remote.Sample{
-				Value:       float64(value),
-				TimestampMs: t,
+				Value       : value,
+				TimestampMs : t,
 			})
 		}
+
+		rcount += curRCount
+
+		slog.Debugf("%s: returned %d rows, cost: %s", q.tag, curRCount, time.Now().Sub(cStart).String())
 	}
 
 	// now add results to response
@@ -121,56 +136,72 @@ func (r *clickReader) HandlePromReadReq(req *remote.ReadRequest) (*remote.ReadRe
 		resp.Results[0].Timeseries = append(resp.Results[0].Timeseries, ts)
 	}
 
-	slog.With(readerContent...).Debugf("query: returning %d rows for %d queries", rcount, len(req.Queries))
+	slog.Infof("%s: query: returning %d rows for %d queries, cost: %s", tag, rcount, len(req.Queries), time.Now().Sub(tStart).String())
 
 	return &resp, nil
 }
 
-// getTimePeriod return select and where SQL chunks relating to the time period -or- error
-func (r *clickReader) getTimePeriod(query *remote.Query) (string, string, error) {
+func (r *clickReader) getSqlQuery(query *remote.Query, hr *http.Request) *sqlQuery {
 
-	var tselSQL = "SELECT COUNT() AS CNT, (intDiv(toUInt32(ts), %d) * %d) * 1000 as t"
-	var twhereSQL = "WHERE date >= toDate(%d) AND ts >= toDateTime(%d) AND ts <= toDateTime(%d)"
-	var err error
-	tstart := query.StartTimestampMs / 1000
-	tend := query.EndTimestampMs / 1000
+	q := newSqlQuery(query)
+	q.tag = r.tag + ": " + q.tag
 
-	// valid time period
-	if tend < tstart {
-		err = errors.New("Start time is after end time")
-		return "", "", err
+	hr.ParseForm()
+
+	dbName := r.click.cfg.Database
+	tbName := r.click.cfg.Table
+	{
+		args, ok := hr.Form["db"]
+		if ok {
+			dbName = args[0]
+		}
+	}
+	{
+		args, ok := hr.Form["table"]
+		if ok {
+			tbName = args[0]
+		}
+	}
+	q.tag = r.tag + "<-" + r.click.tag + "/" + dbName + "." + tbName
+
+	// valid time period checker
+	if query.EndTimestampMs < query.StartTimestampMs {
+		slog.Errorf("%s: Start time is after end time", q.tag)
 	}
 
-	// need time period in seconds
-	tperiod := tend - tstart
+	q.iStart = query.StartTimestampMs / 1000
+	q.iEnd   = query.EndTimestampMs   / 1000
+	q.sStart = time.Unix(q.iStart, 0).Format("2006-01-02 03:04:05")
+	q.sEnd   = time.Unix(q.iEnd  , 0).Format("2006-01-02 03:04:05")
+	q.sDate  = time.Unix(q.iStart, 0).Format("2006-01-02")
 
-	// need to split time period into <nsamples> - also, don't divide by zero
-	if r.cfg.MaxSamplers < 1 {
-		err = fmt.Errorf(fmt.Sprintf("Invalid CHMaxSamples: %d", r.cfg.MaxSamplers))
-		return "", "", err
+	period := q.iEnd - q.iStart
+	step := period / int64(r.cfg.MaxSamples)
+	if step < int64(r.cfg.MinStep) {
+		step = int64(r.cfg.MinStep)
 	}
-	taggr := tperiod / int64(r.cfg.MaxSamplers)
-	if taggr < int64(r.cfg.MaxSamplers) {
-		taggr = int64(r.cfg.MaxSamplers)
-	}
 
-	selectSQL := fmt.Sprintf(tselSQL, taggr, taggr)
-	whereSQL := fmt.Sprintf(twhereSQL, tstart, tstart, tend)
+	q.rows = append(q.rows, fmt.Sprintf("COUNT() AS CNT, (intDiv(toUInt32(ts), %d) * %d) * 1000 as t", step, step))
+	q.rows = append(q.rows, "name", "tags")
+	q.rows = append(q.rows, fmt.Sprintf("quantile(%f)(val) as value", r.cfg.Quantile))
 
-	return selectSQL, whereSQL, nil
+	q.from = fmt.Sprintf("%s.%s", dbName, tbName)
+
+	q.wheres = append(q.wheres, fmt.Sprintf("date >= '%s' AND ts >= '%s' AND ts <= '%s'", q.sDate, q.sStart, q.sEnd))
+	q.wheres = append(q.wheres, r.getMatchWheres(query)...)
+
+	q.groupby = "t, name, tags"
+	q.orderby = "tags"
+
+	q.genSql()
+
+	return q
 }
 
-func (r *clickReader) getSQL(query *remote.Query) (string, error) {
-	// time related select sql, where sql chunks
-	tselectSQL, twhereSQL, err := r.getTimePeriod(query)
-	if err != nil {
-		return "", err
-	}
+func (r *clickReader) getMatchWheres(query *remote.Query) []string {
 
-	// match sql chunk
-	var mwhereSQL []string
-	// build an sql statement chunk for each matcher in the query
-	// yeah, this is a bit ugly..
+	var matchWheres []string
+
 	for _, m := range query.Matchers {
 		// __name__ is handled specially - match it directly
 		// as it is stored in the name column (it's also in tags as __name__)
@@ -187,7 +218,7 @@ func (r *clickReader) getSQL(query *remote.Query) (string, error) {
 			case remote.MatchType_REGEX_NO_MATCH:
 				whereAdd = fmt.Sprintf(` match(name, %s) = 0 `, strings.Replace(m.Value, `/`, `\/`, -1))
 			}
-			mwhereSQL = append(mwhereSQL, whereAdd)
+			matchWheres = append(matchWheres, whereAdd)
 			continue
 		}
 
@@ -209,7 +240,7 @@ func (r *clickReader) getSQL(query *remote.Query) (string, error) {
 				}
 			}
 			wstr := fmt.Sprintf(asql, insql.String())
-			mwhereSQL = append(mwhereSQL, wstr)
+			matchWheres = append(matchWheres, wstr)
 
 		case remote.MatchType_NOT_EQUAL:
 			var insql bytes.Buffer
@@ -228,7 +259,7 @@ func (r *clickReader) getSQL(query *remote.Query) (string, error) {
 				}
 			}
 			wstr := fmt.Sprintf(asql, insql.String())
-			mwhereSQL = append(mwhereSQL, wstr)
+			matchWheres = append(matchWheres, wstr)
 
 		case remote.MatchType_REGEX_MATCH:
 			asql := `arrayExists(x -> 1 == match(x, '^%s=%s'),tags) = 1`
@@ -236,10 +267,10 @@ func (r *clickReader) getSQL(query *remote.Query) (string, error) {
 			if strings.HasPrefix(m.Value, "^") {
 				val := strings.Replace(m.Value, "^", "", 1)
 				val = strings.Replace(val, `/`, `\/`, -1)
-				mwhereSQL = append(mwhereSQL, fmt.Sprintf(asql, m.Name, val))
+				matchWheres = append(matchWheres, fmt.Sprintf(asql, m.Name, val))
 			} else {
 				val := strings.Replace(m.Value, `/`, `\/`, -1)
-				mwhereSQL = append(mwhereSQL, fmt.Sprintf(asql, m.Name, val))
+				matchWheres = append(matchWheres, fmt.Sprintf(asql, m.Name, val))
 			}
 
 		case remote.MatchType_REGEX_NO_MATCH:
@@ -247,43 +278,13 @@ func (r *clickReader) getSQL(query *remote.Query) (string, error) {
 			if strings.HasPrefix(m.Value, "^") {
 				val := strings.Replace(m.Value, "^", "", 1)
 				val = strings.Replace(val, `/`, `\/`, -1)
-				mwhereSQL = append(mwhereSQL, fmt.Sprintf(asql, m.Name, val))
+				matchWheres = append(matchWheres, fmt.Sprintf(asql, m.Name, val))
 			} else {
 				val := strings.Replace(m.Value, `/`, `\/`, -1)
-				mwhereSQL = append(mwhereSQL, fmt.Sprintf(asql, m.Name, val))
+				matchWheres = append(matchWheres, fmt.Sprintf(asql, m.Name, val))
 			}
 		}
 	}
 
-	// put select and where together with group by etc
-	tempSQL := "%s, name, tags, quantile(%f)(val) as value FROM %s.%s %s AND %s GROUP BY t, name, tags ORDER BY t"
-	sql := fmt.Sprintf(tempSQL, tselectSQL, r.cfg.Percentile, r.click.cfg.Database, r.click.cfg.Table, twhereSQL,
-		strings.Join(mwhereSQL, " AND "))
-	return sql, nil
-}
-
-func makeLabels(tags []string) []*remote.LabelPair {
-	lpairs := make([]*remote.LabelPair, 0, len(tags))
-	// (currently) writer includes __name__ in tags so no need to add it here
-	// may change this to save space later..
-	for _, tag := range tags {
-		vals := strings.SplitN(tag, "=", 2)
-		if len(vals) != 2 {
-			log.Errorf("Error unpacking tag key/val: %s\n", tag)
-			continue
-		}
-		if vals[1] == "" {
-			continue
-		}
-		lpairs = append(lpairs, &remote.LabelPair{
-			Name:  vals[0],
-			Value: vals[1],
-		})
-	}
-	return lpairs
-}
-
-func initReader() {
-	reader = NewPrometheusReader()
-	reader.init()
+	return matchWheres
 }

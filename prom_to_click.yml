@@ -3,38 +3,44 @@ server:
   addr      : 0.0.0.0:9302
   timeout   : 30                        # default 30, unit second
 
-reader :
-  clickhouse : server1                  # the server to read, you need to choose one from clickhouse_servers in this config file.
-  max_samples: 20000                    #
-  percentile : 0.75                     #
-
-writer :
-  clickhouse : server1                  # the server to read, you need to choose one from clickhouse_servers in this config file
-  max_samples: 100000
-  batch      : 32768                    # Maximum Clickhouse write batch size (n metrics)
-  buffer     : 32768                    # Maximum internal channel buffer size (n requests)
-
 logger:
   dir          : var/log                 # default var/log
   max_size     : 100                     # default 100, unit MB
   max_backups  : 7                       # default 7
   max_age      : 7                       # default 7
   compress     : false                   # default false
-  console_level: info                    # default info      [debug, info, warn, error, fatal]
-  file_lever   : info                    # default info      [debug, info, warn, error, fatal]
+  level_console: info                    # default info      [debug, info, warn, error, fatal]
+  level_file   : info                    # default info      [debug, info, warn, error, fatal]
+
+writer :
+  clickhouse : server1                  # the server to read, you need to choose one from clickhouse_servers in this config file
+  batch      : 32768                    # Maximum Clickhouse write batch size (n metrics)
+  buffer     : 32768                    # Maximum internal channel buffer size (n requests)
+  wait       : 10                       # default -1, unit second, how long to try to write to clickhouse when batches not reach settings
+
+reader :
+  clickhouse : server1                  # the server to read, you need to choose one from clickhouse_servers in this config file.
+  max_samples: 11000                    # default 11000, the maximum samples can be read from clickhouse for each metric, Note: the default setting in prometheus is 11000
+  quantile   : 0.75                     # default 0.75
+  min_step   : 15                       # default 15
+
+  mode       : 1                        # mode 1: source method from prom2click, 'group by' and 'order by' in clickhouse, more memories taken by clickhouse, less data transfer
+                                        # mode 2: new method, only exec 'order by' in clickhouse, less memories taken by clickhouse, more data transfer(todo: need optimization)
+                                        # default 1
 
 clickhouse_servers:
   server1:
     dsn          : ""                     # the dsn url to connecting, if this set, all other settings of this server will be ignored
     host         : localhost:9000         # main host to connect
-    user         : user                   # which user used for connection
-    passwd       : passwd                 # the password for the user to connecting
-    database     : database               # which database to read and write
-    table        : table                  # which table to read and write
+    user         : qos                    # which user used for connection
+    passwd       : 4ff4eadc0a3b1b9486ba21e9d1abedff6efb6896eae1e6c7804cb0428b5750d6                 # the password for the user to connecting
+    database     : prometheus             # which database to read and write
+    table        : samples                # which table to read and write
     read_timeout : 60                     # unit second
     write_timeout: 10                     # unit second
     alt_hosts    : []                     #
-    strict       : false                  # strict mode, if is on, the process will exit on first err connect
+    #strict       : false                  # strict mode, if is on, the process will exit on first err connect
+
     
 
       

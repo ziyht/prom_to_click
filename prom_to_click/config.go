@@ -1,4 +1,4 @@
-package src
+package prom_to_click
 
 import (
 	"gopkg.in/alecthomas/kingpin.v2"
@@ -18,7 +18,7 @@ type ServerCfg struct {
 
 type ClickCfg struct {
 	Dsn            string   `yaml:"dsn"`
-	Server   	   string   `yaml:"server"`
+	Host     	   string   `yaml:"host"`
 	User     	   string   `yaml:"user"`
 	Passwd   	   string   `yaml:"passwd"`
 	Database 	   string   `yaml:"database"`
@@ -29,27 +29,31 @@ type ClickCfg struct {
 }
 
 type ReaderCfg struct {
-	MaxSamplers  int      `yaml:"max_samples"`
-	Percentile   float32  `yaml:"percentile"`
+	MaxSamples   int      `yaml:"max_samples"`
+	MinStep      int      `yaml:"min_step"`
+	Quantile     float32  `yaml:"quantile"`
 	Clickhouse   string   `yaml:"clickhouse"`
+	Mode         int      `yaml:"mode"`
 }
 
 type WriterCfg struct {
 	Clickhouse   string   `yaml:"clickhouse"`
-	batch        int      `yaml:"batch"`
-	buffer       int      `yaml:"buffer"`
-
+	Batch        int      `yaml:"batch"`
+	Buffer       int      `yaml:"buffer"`
+	Wait         int      `yaml:"wait"`
 }
 
 type LoggerCfg struct{
-	Path        string `yaml:"path"`
-	MaxSize     int    `yaml:"max_size"`
-	MaxBackups  int    `yaml:"max_backups"`
-	MaxAge      int    `yaml:"max_age"`
-	Compress    bool   `yaml:"compress"`
+	Dir          	string `yaml:"dir"`
+	MaxSize     	int    `yaml:"max_size"`
+	MaxBackups  	int    `yaml:"max_backups"`
+	MaxAge      	int    `yaml:"max_age"`
+	Compress    	bool   `yaml:"compress"`
+	LevelConsole    string `yaml:"level_console"`
+	LevelFile       string `yaml:"level_file"`
 }
 
-type cfg struct{
+type ptcCfg struct{
 	Server  ServerCfg
 	Servers map[string]ClickCfg  `yaml:"clickhouse_servers"`
 	Reader  ReaderCfg
@@ -57,7 +61,7 @@ type cfg struct{
 	Logger  LoggerCfg
 }
 
-var Cfg cfg
+var Cfg ptcCfg
 
 func initConfig()  {
 

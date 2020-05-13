@@ -1,4 +1,4 @@
-package src
+package prom_to_click
 
 import (
 	"database/sql"
@@ -8,13 +8,15 @@ import (
 )
 
 type click struct {
-	cfg    *ClickCfg
-	db     *sql.DB
-	dsn    string
-	name   string
-	health bool
-	tag    string
-	sigs   chan int8
+	cfg     *ClickCfg
+	db      *sql.DB
+	dsn     string
+	name    string
+	health  bool
+	connerr error
+	tag     string
+	sigs    chan int8
+	used    bool
 }
 
 func NewClick(name string, cfg *ClickCfg) (*click, error) {
@@ -42,8 +44,8 @@ func (c *click)init(){
 		writeTimeout  := ""
 		altHosts      := ""
 
-		if c.cfg.Server != ""{
-			mainHost = "tcp://" + c.cfg.Server
+		if c.cfg.Host != ""{
+			mainHost = "tcp://" + c.cfg.Host
 		}
 		if c.cfg.User != ""{
 			username = "?username=" + c.cfg.User
@@ -51,9 +53,9 @@ func (c *click)init(){
 		if c.cfg.Passwd != ""{
 			password = "&password=" + c.cfg.Passwd
 		}
-		if c.cfg.Database != ""{
-			database = "&database=" + c.cfg.Database
-		}
+		//if c.cfg.Database != ""{
+		//	database = "&database=" + c.cfg.Database
+		//}
 		if c.cfg.ReadTimeout > 0 {
 			readTimeout = fmt.Sprintf("&read_timeout=%d", c.cfg.ReadTimeout)
 		}
@@ -85,14 +87,40 @@ func (c *click)sigConnect(){
 
 func (c *click)ConnectingRoutine(){
 
-	for _ = range c.sigs{
-		err := c.TryConnect()
-		if err != nil {
-			slog.Errorf("%s: connect failed: %s", c.tag, err)
-			time.Sleep(time.Second)
-		} else {
-			slog.Infof("%s: connected ok", c.tag)
-			for _ = range c.sigs{}			// clear channel
+	lastCheck := time.Unix(0, 0)
+	//lastState := c.health
+
+	newSig := false
+	chanOK := true
+
+	for chanOK {
+
+		newSig = false
+
+		select {
+			case _, chanOK = <- c.sigs: newSig = true
+			default:
+				time.Sleep(time.Second)
+		}
+
+		if ! c.used{
+			continue
+		}
+
+		curCheck := time.Now()
+
+		if curCheck.Sub(lastCheck) > time.Second {
+			if c.health == false || newSig {
+
+				lastCheck = curCheck
+
+				err := c.TryConnect()
+				if err != nil {
+					slog.Errorf("%s: connect failed: %s", c.tag, err)
+				} else {
+					slog.Infof("%s: connected ok", c.tag)
+				}
+			}
 		}
 	}
 }
@@ -110,9 +138,11 @@ func (c *click)TryConnect() error {
 
 	err = c.db.Ping()
 	if err != nil{
-		c.health = false
+		c.connerr = err
+		c.health  = false
 	} else {
-		c.health = true
+		c.connerr = nil
+		c.health  = true
 	}
 
 	return err
@@ -122,22 +152,29 @@ func (c *click)IsHealthy() bool {
 	return c.health
 }
 
+func (c *click)Exec(query string, args ...interface{}) (sql.Result, error) {
+	if c.health == false{
+		return nil, fmt.Errorf("status, unheathy: %s", c.connerr)
+		c.sigConnect()
+	}
+
+	return c.db.Exec(query, args...)
+}
+
 func (c *click)Query(query string, args ...interface{}) (*sql.Rows, error) {
 	if c.health == false{
-		return nil, fmt.Errorf("status, unheathy")
+		return nil, fmt.Errorf("status, unheathy: %s", c.connerr)
 		c.sigConnect()
 	}
 
 	return c.db.Query(query, args...)
 }
 
-type clicks struct {
+type clicksMan struct {
 	clicks map[string]*click
 }
 
-var ClicksMan *clicks
-
-func (cs *clicks) init(){
+func (cs *clicksMan) init(){
 	cs.clicks = map[string]*click{}
 
 	for name, cfg := range Cfg.Servers{
@@ -152,17 +189,18 @@ func (cs *clicks) init(){
 	}
 }
 
-func (cs *clicks) GetServer(name string) *click {
+func (cs *clicksMan) GetServer(name string) *click {
 	click, exist := cs.clicks[name]
 
 	if exist{
+		click.used = true
 		return click
 	} else {
 		return nil
 	}
 }
 
-func (cs *clicks) Query(name string, query string) (*sql.Rows, error) {
+func (cs *clicksMan) Query(name string, query string) (*sql.Rows, error) {
 
 	click := cs.GetServer(name)
 
@@ -171,10 +209,4 @@ func (cs *clicks) Query(name string, query string) (*sql.Rows, error) {
 	} else {
 		return nil, fmt.Errorf("server named '%s' can not be found")
 	}
-}
-
-func initClickhouse() {
-
-	ClicksMan = new(clicks)
-	ClicksMan.init()
 }
