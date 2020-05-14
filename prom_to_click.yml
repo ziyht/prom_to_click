@@ -13,10 +13,10 @@ logger:
   level_file   : info                    # default info      [debug, info, warn, error, fatal]
 
 writer :
-  clickhouse : server1                  # the server to read, you need to choose one from clickhouse_servers in this config file
+  clickhouse : server1                  # the server to write, you need to choose one from clickhouse_servers in this config file
   batch      : 32768                    # Maximum Clickhouse write batch size (n metrics)
   buffer     : 32768                    # Maximum internal channel buffer size (n requests)
-  wait       : 10                       # default -1, unit second, how long to try to write to clickhouse when batches not reach settings
+  wait       : 10                       # default -1, unit second, how long to try to write to clickhouse when current batches not reach settings
 
 reader :
   clickhouse : server1                  # the server to read, you need to choose one from clickhouse_servers in this config file.

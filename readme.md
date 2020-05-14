@@ -50,7 +50,4 @@ using /write and /read URI for prometheus to write and read
 ## 
 
 ## todo
-
-* can set db name and table name in uri
-* support multi prometheus and clickhouse, maybe no need
-* to update core logic to PromHouse
+* to update core logic to PromHouse, maybe more efficient
