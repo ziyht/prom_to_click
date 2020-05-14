@@ -1,0 +1,7 @@
+#!/bin/sh
+
+dir=$(cd $(dirname $0); pwd)
+
+version=`cat $dir/version`
+
+docker build -t ziyht/prom_to_click:$version $dir
