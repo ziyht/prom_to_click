@@ -171,8 +171,8 @@ func (r *clickReader) getSqlQuery(query *remote.Query, hr *http.Request) *sqlQue
 
 	q.iStart = query.StartTimestampMs / 1000
 	q.iEnd   = query.EndTimestampMs   / 1000
-	q.sStart = time.Unix(q.iStart, 0).Format("2006-01-02 03:04:05")
-	q.sEnd   = time.Unix(q.iEnd  , 0).Format("2006-01-02 03:04:05")
+	q.sStart = time.Unix(q.iStart, 0).Format("2006-01-02 15:04:05")
+	q.sEnd   = time.Unix(q.iEnd  , 0).Format("2006-01-02 15:04:05")
 	q.sDate  = time.Unix(q.iStart, 0).Format("2006-01-02")
 
 	period := q.iEnd - q.iStart
