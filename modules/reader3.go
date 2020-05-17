@@ -322,13 +322,10 @@ func (r *clickReader3) getSqlQuery2(query *remote.Query, hr *http.Request) *sqlQ
 
 	q.from = fmt.Sprintf("%s.%s", dbName, tbNameSamples)
 
-	nameWhere := r.getWhereName(query)
-	var wheres []string
-	if len(nameWhere) > 0 {
-		wheres = append(wheres, nameWhere)
-		wheres = append(wheres, fmt.Sprintf("date >= '%s' AND date <= '%s'", q.sStartDate, q.sEndDate))
-	}
 
+	var wheres []string
+	wheres = append(wheres, fmt.Sprintf("date >= '%s' AND date <= '%s'", q.sStartDate, q.sEndDate))
+	wheres = append(wheres, r.getMatchWheres(query)...)
 	inSQL := fmt.Sprintf("fingerprint in (select fingerprint from %s.%s where %s group by fingerprint)", dbName, tbNameMetrics, strings.Join(wheres," AND "))
 
 	q.wheres = append(q.wheres, fmt.Sprintf("ts >= '%s' AND ts <= '%s'", q.sStart, q.sEnd))
