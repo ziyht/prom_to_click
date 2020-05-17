@@ -29,6 +29,8 @@ type ptcEngine struct {
 	log    *zap.SugaredLogger
 }
 
+
+
 var Engine *ptcEngine
 
 func (e *ptcEngine)GetLog() *zap.SugaredLogger{
@@ -58,6 +60,11 @@ func init(){
 
 	if Cfg.Reader.Mode == 2{
 		Engine.reader = new(clickReader2)
+	}
+
+	if Cfg.Reader.Mode == 3{
+		Engine.reader = new(clickReader3)
+		Engine.writer = new(clickWriter3)
 	}
 
 	Engine.clicks.init()

@@ -9,7 +9,7 @@ logger:
   max_backups  : 7                       # default 7
   max_age      : 7                       # default 7
   compress     : false                   # default false
-  level_console: info                    # default info      [debug, info, warn, error, fatal]
+  level_console: debug                    # default info      [debug, info, warn, error, fatal]
   level_file   : info                    # default info      [debug, info, warn, error, fatal]
 
 writer :
@@ -23,10 +23,12 @@ reader :
   max_samples: 11000                    # default 11000, the maximum samples can be read from clickhouse for each metric, Note: the default setting in prometheus is 11000
   quantile   : 0.75                     # default 0.75
   min_step   : 15                       # default 15
-
-  mode       : 1                        # mode 1: source method from prom2click, 'group by' and 'order by' in clickhouse, more memories taken by clickhouse, less data transfer
+  utc        : true                     # convert query start and end to utc or not
+  mode       : 3                        # default 1
+                                        # mode 1: source method from prom2click, 'group by' and 'order by' in clickhouse, more memories taken by clickhouse, less data transfer
                                         # mode 2: new method, only exec 'order by' in clickhouse, less memories taken by clickhouse, more data transfer(todo: need optimization)
-                                        # default 1
+                                        # mode 3: new method, store data like promhouse, note: the data stored in clickhouse is not compact to mode 1 and mode 2
+                                        #         in this mode, we'll create two tables to store data, the table name will be <setting.table>_metrics <setting.table>_samples
 
 clickhouse_servers:
   server1:
@@ -35,7 +37,7 @@ clickhouse_servers:
     user         : qos                    # which user used for connection
     passwd       : 4ff4eadc0a3b1b9486ba21e9d1abedff6efb6896eae1e6c7804cb0428b5750d6                 # the password for the user to connecting
     database     : prometheus             # which database to read and write
-    table        : samples                # which table to read and write
+    table        : dev_test               # which table to read and write
     read_timeout : 60                     # unit second
     write_timeout: 10                     # unit second
     alt_hosts    : []                     #

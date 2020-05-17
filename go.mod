@@ -5,6 +5,7 @@ go 1.14
 require (
 	github.com/ClickHouse/clickhouse-go v1.4.0
 	github.com/alecthomas/units v0.0.0-20190924025748-f65c72e2690d // indirect
+	github.com/emirpasic/gods v1.12.0
 	github.com/golang/protobuf v1.4.1
 	github.com/golang/snappy v0.0.1
 	github.com/kr/pretty v0.2.0 // indirect

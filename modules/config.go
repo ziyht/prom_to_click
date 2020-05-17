@@ -34,6 +34,7 @@ type ReaderCfg struct {
 	Quantile     float32  `yaml:"quantile"`
 	Clickhouse   string   `yaml:"clickhouse"`
 	Mode         int      `yaml:"mode"`
+	Utc          bool     `yaml:"utc"`
 }
 
 type WriterCfg struct {

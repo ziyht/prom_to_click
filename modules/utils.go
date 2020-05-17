@@ -29,23 +29,24 @@ func makeLabels(tags []string) []*remote.LabelPair {
 
 type sqlQuery struct{
 	// input
-	query   *remote.Query
+	query       *remote.Query
 
 	// -- middle
-	tag    string
-	iStart int64
-	iEnd   int64
-	sDate  string
-	sStart string
-	sEnd   string
+	tag         string
+	iStart      int64
+	iEnd        int64
+	sStartDate  string
+	sEndDate    string
+	sStart      string
+	sEnd        string
 
 	// query
-	sql      string
-	rows     []string
-	wheres   []string
-	from     string
-	orderby  string
-	groupby  string
+	sql         string
+	rows        []string
+	wheres      []string
+	from        string
+	orderBy     string
+	groupBy     string
 }
 
 var queryCounter int64
@@ -69,11 +70,12 @@ func (q *sqlQuery)genSql(){
 		strings.Join(q.wheres, " AND "),
 	)
 
-	if q.groupby != "" {
-		q.sql += " GROUP BY " + q.groupby
+	if q.groupBy != "" {
+		q.sql += " GROUP BY " + q.groupBy
 	}
 
-	if q.orderby != "" {
-		q.sql += " ORDER BY " + q.orderby
+	if q.orderBy != "" {
+		q.sql += " ORDER BY " + q.orderBy
 	}
 }
+

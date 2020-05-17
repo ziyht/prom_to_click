@@ -171,9 +171,17 @@ func (r *clickReader) getSqlQuery(query *remote.Query, hr *http.Request) *sqlQue
 
 	q.iStart = query.StartTimestampMs / 1000
 	q.iEnd   = query.EndTimestampMs   / 1000
-	q.sStart = time.Unix(q.iStart, 0).Format("2006-01-02 15:04:05")
-	q.sEnd   = time.Unix(q.iEnd  , 0).Format("2006-01-02 15:04:05")
-	q.sDate  = time.Unix(q.iStart, 0).Format("2006-01-02")
+	if r.cfg.Utc{
+		q.sStart      = time.Unix(q.iStart, 0).UTC().Format("2006-01-02 15:04:05")
+		q.sEnd        = time.Unix(q.iEnd  , 0).UTC().Format("2006-01-02 15:04:05")
+		q.sStartDate  = time.Unix(q.iStart, 0).UTC().Format("2006-01-02")
+		q.sEndDate    = time.Unix(q.iEnd  , 0).UTC().Format("2006-01-02")
+	} else {
+		q.sStart      = time.Unix(q.iStart, 0).Format("2006-01-02 15:04:05")
+		q.sEnd        = time.Unix(q.iEnd  , 0).Format("2006-01-02 15:04:05")
+		q.sStartDate  = time.Unix(q.iStart, 0).Format("2006-01-02")
+		q.sEndDate    = time.Unix(q.iEnd  , 0).Format("2006-01-02")
+	}
 
 	period := q.iEnd - q.iStart
 	step := period / int64(r.cfg.MaxSamples)
@@ -187,11 +195,11 @@ func (r *clickReader) getSqlQuery(query *remote.Query, hr *http.Request) *sqlQue
 
 	q.from = fmt.Sprintf("%s.%s", dbName, tbName)
 
-	q.wheres = append(q.wheres, fmt.Sprintf("date >= '%s' AND ts >= '%s' AND ts <= '%s'", q.sDate, q.sStart, q.sEnd))
+	q.wheres = append(q.wheres, fmt.Sprintf("date >= '%s' AND ts >= '%s' AND ts <= '%s'", q.sStartDate, q.sStart, q.sEnd))
 	q.wheres = append(q.wheres, r.getMatchWheres(query)...)
 
-	q.groupby = "t, name, tags"
-	q.orderby = "tags"
+	q.groupBy = "t, name, tags"
+	q.orderBy = "tags"
 
 	q.genSql()
 
