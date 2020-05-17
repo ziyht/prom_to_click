@@ -225,7 +225,7 @@ func (r *clickReader3) getSqlQuery(query *remote.Query, hr *http.Request) *sqlQu
 	{
 		args, ok := hr.Form["table"]
 		if ok {
-			tbName = args[0] + "_metrics"
+			tbName = args[0]
 		}
 	}
 	tbNameMetrics := tbName + "_metrics"
