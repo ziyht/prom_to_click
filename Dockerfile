@@ -21,8 +21,5 @@ FROM scratch AS prod
 VOLUME /etc/
 ADD prom_to_click.yml /etc/prom_to_click.yml
 
-# port
-EXPOSE 9302
-
 COPY --from=builder /go/src/github.com/ziyht/prom_to_click/prom_to_click .
 CMD ["./prom_to_click", "--config.file=/etc/prom_to_click.yml"]
