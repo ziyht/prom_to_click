@@ -9,8 +9,8 @@ logger:
   max_backups  : 7                       # default 7
   max_age      : 7                       # default 7
   compress     : false                   # default false
-  level_console: debug                    # default info      [debug, info, warn, error, fatal]
-  level_file   : info                    # default info      [debug, info, warn, error, fatal]
+  level_console: info                    # default info      [debug, info, warn, error, fatal]
+  level_file   : debug                   # default info      [debug, info, warn, error, fatal]
 
 writer :
   clickhouse : server1                  # the server to write, you need to choose one from clickhouse_servers in this config file
